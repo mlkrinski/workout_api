@@ -29,3 +29,11 @@ class AtletaOut(Atleta, OutMixin):
 class AtletaUpdate(BaseSchema):
     nome: Annotated[Optional[str], Field(None, description="Nome do atleta", example="João", max_length=50)]
     idade: Annotated[Optional[int], Field(None, description="Idade do atleta", example="25")]
+
+
+class AtletaListOut(BaseSchema):
+    nome: Annotated[str, Field(description="Nome do atleta", example="João")]
+    categoria: Annotated[CategoriaIn, Field(description="Categoria do atleta")]
+    centro_treinamento: Annotated[
+        CentroTreinamentoAtleta, Field(description="Centro de Treinamento do atleta")
+    ]

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Body, HTTPException, status
 from pydantic import UUID4
 from typing import Optional
 from workoutapi.contrib.dependencies import DataBaseDependency
-from workoutapi.atleta.schemas import AtletaIn, AtletaOut, AtletaUpdate
+from workoutapi.atleta.schemas import AtletaIn, AtletaOut, AtletaUpdate, AtletaListOut
 from workoutapi.atleta.models import AtletaModel
 from sqlalchemy.future import select
 from workoutapi.categorias.models import CategoriaModel
@@ -67,11 +67,11 @@ async def create_atleta(db_session: DataBaseDependency, atleta_in: AtletaIn = Bo
     "/",
     summary="Consultar todos os Atletas",
     status_code=status.HTTP_200_OK,
-    response_model=list[AtletaOut],
+    response_model=list[AtletaListOut],
 )
 async def list_atletas(
     db_session: DataBaseDependency, nome: Optional[str] = None, cpf: Optional[str] = None
-) -> list[AtletaOut]:
+) -> list[AtletaListOut]:
     stmt = select(AtletaModel)
 
     if nome:
@@ -80,7 +80,7 @@ async def list_atletas(
         stmt = stmt.filter(AtletaModel.cpf == cpf)
 
     atletas = (await db_session.execute(stmt)).scalars().all()
-    return [AtletaOut.model_validate(atleta) for atleta in atletas]
+    return [AtletaListOut.model_validate(atleta) for atleta in atletas]
 
 
 # ---------------------------
