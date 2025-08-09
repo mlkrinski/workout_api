@@ -1,8 +1,8 @@
 from datetime import datetime
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Body, HTTPException, status
 from pydantic import UUID4
+from typing import Optional
 from workoutapi.contrib.dependencies import DataBaseDependency
 from workoutapi.atleta.schemas import AtletaIn, AtletaOut, AtletaUpdate
 from workoutapi.atleta.models import AtletaModel
@@ -13,10 +13,14 @@ from workoutapi.Centro_treinamento.models import CentroTreinamentoModel
 router = APIRouter()
 
 
+# ---------------------------
+# Criar novo atleta
+# ---------------------------
 @router.post("/", summary="Criar novo atleta", status_code=status.HTTP_201_CREATED, response_model=AtletaOut)
-async def post(db_session: DataBaseDependency, atleta_in: AtletaIn = Body(...)):
+async def create_atleta(db_session: DataBaseDependency, atleta_in: AtletaIn = Body(...)):
     categoria_name = atleta_in.categoria.nome
     centro_treinamento_nome = atleta_in.centro_treinamento.nome
+
     categoria = (
         (await db_session.execute(select(CategoriaModel).filter_by(nome=categoria_name))).scalars().first()
     )
@@ -36,6 +40,7 @@ async def post(db_session: DataBaseDependency, atleta_in: AtletaIn = Body(...)):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"O Centro de Treinamento {centro_treinamento_nome} não foi encontrado.",
         )
+
     try:
         atleta_out = AtletaOut(
             id=uuid4(), created_at=datetime.now().replace(tzinfo=None), **atleta_in.model_dump()
@@ -46,55 +51,69 @@ async def post(db_session: DataBaseDependency, atleta_in: AtletaIn = Body(...)):
 
         db_session.add(atleta_model)
         await db_session.commit()
-    except Exception:
+    except Exception as e:
         raise HTTPException(
-            # status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            # detail=f"Erro: {str(e)}",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Ocorreu um erro ao inserir os dados no banco",
+            detail=f"Ocorreu um erro ao inserir os dados no banco: {str(e)}",
         )
 
     return atleta_out
 
 
+# ---------------------------
+# Consultar todos os atletas (com filtros opcionais)
+# ---------------------------
 @router.get(
     "/",
     summary="Consultar todos os Atletas",
     status_code=status.HTTP_200_OK,
     response_model=list[AtletaOut],
 )
-async def query(db_session: DataBaseDependency) -> list[AtletaOut]:
-    atletas: list[AtletaOut] = (await db_session.execute(select(AtletaModel))).scalars().all()
+async def list_atletas(
+    db_session: DataBaseDependency, nome: Optional[str] = None, cpf: Optional[str] = None
+) -> list[AtletaOut]:
+    stmt = select(AtletaModel)
 
+    if nome:
+        stmt = stmt.filter(AtletaModel.nome.ilike(f"%{nome}%"))
+    if cpf:
+        stmt = stmt.filter(AtletaModel.cpf == cpf)
+
+    atletas = (await db_session.execute(stmt)).scalars().all()
     return [AtletaOut.model_validate(atleta) for atleta in atletas]
 
 
+# ---------------------------
+# Consultar atleta pelo ID
+# ---------------------------
 @router.get(
     "/{id}",
     summary="Consultar um atleta pelo id",
     status_code=status.HTTP_200_OK,
     response_model=AtletaOut,
 )
-async def get(id: UUID4, db_session: DataBaseDependency) -> AtletaOut:
-    atleta: AtletaOut = (await db_session.execute(select(AtletaModel).filter_by(id=id))).scalars().first()
-
+async def get_atleta(id: UUID4, db_session: DataBaseDependency) -> AtletaOut:
+    atleta = (await db_session.execute(select(AtletaModel).filter_by(id=id))).scalars().first()
     if not atleta:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Atleta não encontrado no id: {id}"
         )
-
     return atleta
 
 
+# ---------------------------
+# Editar atleta pelo ID
+# ---------------------------
 @router.patch(
     "/{id}",
     summary="Editar um atleta pelo id",
     status_code=status.HTTP_200_OK,
     response_model=AtletaOut,
 )
-async def get(id: UUID4, db_session: DataBaseDependency, atleta_up: AtletaUpdate = Body(...)) -> AtletaOut:
-    atleta: AtletaOut = (await db_session.execute(select(AtletaModel).filter_by(id=id))).scalars().first()
-
+async def update_atleta(
+    id: UUID4, db_session: DataBaseDependency, atleta_up: AtletaUpdate = Body(...)
+) -> AtletaOut:
+    atleta = (await db_session.execute(select(AtletaModel).filter_by(id=id))).scalars().first()
     if not atleta:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Atleta não encontrado no id: {id}"
@@ -106,14 +125,15 @@ async def get(id: UUID4, db_session: DataBaseDependency, atleta_up: AtletaUpdate
 
     await db_session.commit()
     await db_session.refresh(atleta)
-
     return atleta
 
 
+# ---------------------------
+# Deletar atleta pelo ID
+# ---------------------------
 @router.delete("/{id}", summary="Deletar um atleta pelo id", status_code=status.HTTP_204_NO_CONTENT)
-async def get(id: UUID4, db_session: DataBaseDependency) -> None:
-    atleta: AtletaOut = (await db_session.execute(select(AtletaModel).filter_by(id=id))).scalars().first()
-
+async def delete_atleta(id: UUID4, db_session: DataBaseDependency) -> None:
+    atleta = (await db_session.execute(select(AtletaModel).filter_by(id=id))).scalars().first()
     if not atleta:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Atleta não encontrado no id: {id}"
