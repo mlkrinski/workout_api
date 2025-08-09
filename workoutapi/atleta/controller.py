@@ -3,12 +3,16 @@ from uuid import uuid4
 from fastapi import APIRouter, Body, HTTPException, status
 from pydantic import UUID4
 from typing import Optional
+from sqlalchemy.exc import IntegrityError
 from workoutapi.contrib.dependencies import DataBaseDependency
 from workoutapi.atleta.schemas import AtletaIn, AtletaOut, AtletaUpdate, AtletaListOut
 from workoutapi.atleta.models import AtletaModel
 from sqlalchemy.future import select
 from workoutapi.categorias.models import CategoriaModel
 from workoutapi.Centro_treinamento.models import CentroTreinamentoModel
+from fastapi_pagination import Page, add_pagination, paginate
+from fastapi_pagination.ext.sqlalchemy import paginate as sqlalchemy_paginate
+
 
 router = APIRouter()
 
@@ -41,20 +45,22 @@ async def create_atleta(db_session: DataBaseDependency, atleta_in: AtletaIn = Bo
             detail=f"O Centro de Treinamento {centro_treinamento_nome} não foi encontrado.",
         )
 
-    try:
-        atleta_out = AtletaOut(
-            id=uuid4(), created_at=datetime.now().replace(tzinfo=None), **atleta_in.model_dump()
-        )
-        atleta_model = AtletaModel(**atleta_out.model_dump(exclude={"categoria", "centro_treinamento"}))
-        atleta_model.categoria_id = categoria.pk_id
-        atleta_model.centro_treinamentos_id = centro_treinamento.pk_id
+    atleta_out = AtletaOut(
+        id=uuid4(), created_at=datetime.now().replace(tzinfo=None), **atleta_in.model_dump()
+    )
+    atleta_model = AtletaModel(**atleta_out.model_dump(exclude={"categoria", "centro_treinamento"}))
+    atleta_model.categoria_id = categoria.pk_id
+    atleta_model.centro_treinamentos_id = centro_treinamento.pk_id
 
-        db_session.add(atleta_model)
+    db_session.add(atleta_model)
+
+    try:
         await db_session.commit()
-    except Exception as e:
+    except IntegrityError:
+        await db_session.rollback()
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Ocorreu um erro ao inserir os dados no banco: {str(e)}",
+            status_code=status.HTTP_303_SEE_OTHER,
+            detail=f"Já existe um atleta cadastrado com o cpf: {atleta_in.cpf}",
         )
 
     return atleta_out
@@ -65,13 +71,10 @@ async def create_atleta(db_session: DataBaseDependency, atleta_in: AtletaIn = Bo
 # ---------------------------
 @router.get(
     "/",
-    summary="Consultar todos os Atletas",
-    status_code=status.HTTP_200_OK,
-    response_model=list[AtletaListOut],
+    summary="Consultar todos os Atletas com paginação",
+    response_model=Page[AtletaOut],
 )
-async def list_atletas(
-    db_session: DataBaseDependency, nome: Optional[str] = None, cpf: Optional[str] = None
-) -> list[AtletaListOut]:
+async def list_atletas(db_session: DataBaseDependency, nome: Optional[str] = None, cpf: Optional[str] = None):
     stmt = select(AtletaModel)
 
     if nome:
@@ -79,8 +82,11 @@ async def list_atletas(
     if cpf:
         stmt = stmt.filter(AtletaModel.cpf == cpf)
 
-    atletas = (await db_session.execute(stmt)).scalars().all()
-    return [AtletaListOut.model_validate(atleta) for atleta in atletas]
+    # Use o paginate do fastapi_pagination.ext.sqlalchemy para paginar a query
+    result = await sqlalchemy_paginate(db_session, stmt)
+
+    # O resultado já é um objeto Page com os dados e meta info
+    return result
 
 
 # ---------------------------
